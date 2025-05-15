@@ -29,8 +29,8 @@ mkdir ${workfolder}
 
 # run mobmess
 mobmess systems \
-    --sequences /PATH/plasmids.fasta \
-    --complete /PATH/mobmess_plasmids.txt \
+    --sequences /PATH/scaffolds_geNomad.fasta \
+    --complete /PATH/circular_scaffolds_geNomad.txt \
     --output /PATH/output \
     --threads  ${SLURM_CPUS_PER_TASK} \
     --tmp ${workfolder}
