@@ -52,7 +52,9 @@ for (i in 1:12) {
   tmp_child <- paste("id", i, sep = "")
   
   # split fasta
-  row_filter <- extractList(df_contigs_spades_filter, names(df_contigs_spades_filter)[grepl(paste0(tmp_child, "_"), names(df_contigs_spades_filter))])
+  row_filter <- extractList(df_contigs_spades_filter, 
+                            names(df_contigs_spades_filter)[grepl(paste0(tmp_child, "_"), 
+                                                                  names(df_contigs_spades_filter))])
   row_filter <- unlist(row_filter)
   names(row_filter) <- gsub("_", ".", names(row_filter))
   row_filter <- row_filter %>% as.character()
@@ -74,4 +76,3 @@ for (i in 1:12) {
                                                    ".txt"),
               sep = "\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
 }
-
