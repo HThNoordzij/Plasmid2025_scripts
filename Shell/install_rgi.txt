@@ -1,0 +1,5 @@
+#get docker image
+singularity pull --name rgi.sif docker://finlaymaguire/rgi
+
+# run program in container
+singularity run rgi.sif rgi -h
