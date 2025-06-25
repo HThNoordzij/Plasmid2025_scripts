@@ -8,4 +8,4 @@ Figure 1 of the article is a flowchart of the methods:
 
 ![Alt text](https://github.com/HThNoordzij/Plasmid2025_scripts/blob/main/static/Figure1.png)
 
- 
+The flowchart was made using draw.io and RColorBrewer colors.
