@@ -1,0 +1,268 @@
+###############################################################################
+########################   Alpha diversity   ###################################
+# Clean up the memory before we start. 
+rm(list=ls(all=TRUE))
+
+#Load package
+library("tidyverse")
+library(vegan)
+library("phyloseq")
+library(mgcv)
+
+# Set working directory
+setwd("~/PATH/")
+
+# Load cluster abundance
+file_clusters <- "abundance_summary_clusters.csv"
+df_clusters_summary <- read_csv(file_clusters)
+
+df_clusters_abundance <- df_clusters_summary %>%
+  select(cluster, child, day, RPKM) %>%
+  mutate(child = as.integer(gsub("id", "", child))) 
+
+## shannon
+df_plasmid_species_all <- df_clusters_abundance %>%
+  pivot_wider(names_from = cluster, values_from = RPKM, values_fill = 0.0) %>%
+  as.matrix()
+rownames(df_plasmid_species_all) <-  paste(df_plasmid_species_all[,1],
+                                           df_plasmid_species_all[,2], 
+                                           sep = "_d")
+df_plasmid_species_all <- df_plasmid_species_all[,3:ncol(df_plasmid_species_all)]
+shannon_mapped <- diversity(df_plasmid_species_all, index = "shannon")
+
+## choa
+df_plasmid_species_all_clusterary <- ifelse(df_plasmid_species_all > 0, 1, 0)
+data_richness <- estimateR(df_plasmid_species_all_clusterary)
+chao_mapped <- data_richness[2,]
+
+## obs
+obs_mapped <- data_richness[1,]
+
+## beta
+tmp_BCdist <- vegdist(as.matrix(df_plasmid_species_all), method = "bray",
+                      clusterary = T)
+tmp_BCdist <- as.matrix(tmp_BCdist)
+data_BCdist <- as.double()
+for(i in 2:nrow(tmp_BCdist)){
+  tmp_max <- nrow(tmp_BCdist)
+  if(i == tmp_max){
+    data_BCdist <- c(data_BCdist, tmp_BCdist[tmp_max,1])
+  } else {
+    data_BCdist <- c(data_BCdist, tmp_BCdist[i:tmp_max,(i-1)])
+  }
+}
+# names(data_BCdist) <- paste0(seq(1,length(data_BCdist),1),"_m", tmp_month)
+BCdist_mapped <- data_BCdist
+# data_perm <- adonis2(as.numeric(data_BCdist)~names(data_BCdist))
+
+## shannon
+shannon_days<-unlist(lapply(strsplit(names(shannon_mapped),split='_d'),function(x)x[2]))
+shannon_id<-unlist(lapply(strsplit(names(shannon_mapped),split='_'),function(x)x[1]))
+colors_shannon<-vector()
+colors_shannon[shannon_id=='1']<-1
+colors_shannon[shannon_id=='2']<-2
+colors_shannon[shannon_id=='3']<-3
+colors_shannon[shannon_id=='4']<-4
+colors_shannon[shannon_id=='5']<-5
+colors_shannon[shannon_id=='6']<-6
+colors_shannon[shannon_id=='7']<-7
+colors_shannon[shannon_id=='8']<-8
+colors_shannon[shannon_id=='9']<-'brown'
+colors_shannon[shannon_id=='10']<-'purple'
+colors_shannon[shannon_id=='11']<-'darkblue'
+colors_shannon[shannon_id=='12']<-'orange'
+
+shannon_days<-as.numeric(shannon_days)
+mod_shannon_mapped <- gam(shannon_mapped~s(shannon_days,k=5))
+summary(mod_shannon_mapped)
+
+## chao
+chao_days<-unlist(lapply(strsplit(names(chao_mapped),split='_d'),function(x)x[2]))
+chao_id<-unlist(lapply(strsplit(names(chao_mapped),split='_'),function(x)x[1]))
+colors_chao<-vector()
+colors_chao[chao_id=='1']<-1
+colors_chao[chao_id=='2']<-2
+colors_chao[chao_id=='3']<-3
+colors_chao[chao_id=='4']<-4
+colors_chao[chao_id=='5']<-5
+colors_chao[chao_id=='6']<-6
+colors_chao[chao_id=='7']<-7
+colors_chao[chao_id=='8']<-8
+colors_chao[chao_id=='9']<-'brown'
+colors_chao[chao_id=='10']<-'purple'
+colors_chao[chao_id=='11']<-'darkblue'
+colors_chao[chao_id=='12']<-'orange'
+
+chao_days<-as.numeric(chao_days)
+mod_chao_mapped <- gam(chao_mapped~s(chao_days,k=5))
+summary(mod_chao_mapped)
+
+
+## obs
+obs_days<-unlist(lapply(strsplit(names(obs_mapped),split='_d'),function(x)x[2]))
+obs_id<-unlist(lapply(strsplit(names(obs_mapped),split='_'),function(x)x[1]))
+colors_obs<-vector()
+colors_obs[obs_id=='1']<-1
+colors_obs[obs_id=='2']<-2
+colors_obs[obs_id=='3']<-3
+colors_obs[obs_id=='4']<-4
+colors_obs[obs_id=='5']<-5
+colors_obs[obs_id=='6']<-6
+colors_obs[obs_id=='7']<-7
+colors_obs[obs_id=='8']<-8
+colors_obs[obs_id=='9']<-'brown'
+colors_obs[obs_id=='10']<-'purple'
+colors_obs[obs_id=='11']<-'darkblue'
+colors_obs[obs_id=='12']<-'orange'
+
+obs_days<-as.numeric(obs_days)
+mod_obs_mapped <- gam(obs_mapped~s(obs_days,k=5))
+summary(mod_obs_mapped)
+
+## beta
+beta_days<-unlist(lapply(strsplit(names(BCdist_mapped),split='_d'),function(x)x[2]))
+beta_id<-unlist(lapply(strsplit(names(BCdist_mapped),split='_'),function(x)x[1]))
+colors_beta<-vector()
+colors_beta[beta_id=='1']<-1
+colors_beta[beta_id=='2']<-2
+colors_beta[beta_id=='3']<-3
+colors_beta[beta_id=='4']<-4
+colors_beta[beta_id=='5']<-5
+colors_beta[beta_id=='6']<-6
+colors_beta[beta_id=='7']<-7
+colors_beta[beta_id=='8']<-8
+colors_beta[beta_id=='9']<-'brown'
+colors_beta[beta_id=='10']<-'purple'
+colors_beta[beta_id=='11']<-'darkblue'
+colors_beta[beta_id=='12']<-'orange'
+
+beta_days<-as.numeric(beta_days)
+mod_beta_mapped <- gam(BCdist_mapped~s(beta_days,k=5))
+summary(mod_beta_mapped)
+
+############ plotting
+grDevices::windows(10,10)
+par(mfrow=c(1,1))
+par(mar=c(4,6,2,1))
+
+plot(mod_chao_mapped,
+     residuals=T,
+     shift=mean(chao_mapped),
+     # pch=16,
+     col='black',
+     rug=F,
+     lwd=2,
+     shade=T,
+     shade.col='grey90',
+     xlab='Days',ylab='Plasmid Richness',
+     cex.axis=2,
+     cex.lab = 2,
+     main='')
+points(chao_mapped~chao_days,
+       pch=16,
+       cex=2,
+       col=colors_chao)
+legend('topleft',
+       legend=c('ID1','ID2','ID3','ID4','ID5','ID6','ID7','ID8','ID9','ID10','ID11','ID12'),
+       fill=c(1:8,'brown','purple','darkblue','orange'),cex=1.5)
+Rlabel <- bquote(italic(R)^2 == .(format(round(summary(mod_chao_mapped)$r.sq, digits = 2))))
+Plabel <- bquote(italic(P) == .(format(round(summary(mod_chao_mapped)$s.table[,4], digits = 5))))
+mylabel <- c(Rlabel, Plabel)
+legend('top', legend = mylabel, bty = 'n', cex = 2)
+
+grDevices::windows(10,10)
+par(mfrow=c(1,1))
+par(mar=c(4,6,2,1))
+
+plot(mod_shannon_mapped,
+     residuals=T,
+     shift=mean(shannon_mapped),
+     # pch=16,
+     ylim = c(0,2.82),
+     col='black',
+     rug=F,
+     lwd=2,
+     shade=T,
+     shade.col='grey90',
+     xlab='Days',ylab='Shannon Index',
+     cex.axis=2,
+     cex.lab = 2,
+     main='') 
+points(shannon_mapped~shannon_days,
+       pch=16,
+       cex=2,
+       col=colors_shannon)
+# legend('topleft',
+#        legend=c('ID1','ID2','ID3','ID4','ID5','ID6','ID7','ID8','ID9','ID10','ID11','ID12'),
+#        fill=c(1:8,'brown','purple','darkblue','orange'),cex=.7)
+Rlabel <- bquote(italic(R)^2 == .(format(round(summary(mod_shannon_mapped)$r.sq, digits = 3))))
+Plabel <- bquote(italic(P) == .(format(round(summary(mod_shannon_mapped)$s.table[,4], digits = 3))))
+mylabel <- c(Rlabel, Plabel)
+legend('top', legend = mylabel, bty = 'n', cex = 2)
+
+grDevices::windows(10,10)
+par(mfrow=c(1,1))
+par(mar=c(4,6,2,1))
+
+plot(mod_obs_mapped,
+     residuals=T,
+     shift=mean(obs_mapped),
+     # pch=16,
+     col='black',
+     rug=F,
+     lwd=2,
+     shade=T,
+     shade.col='grey90',
+     xlab='Days',ylab='# Plasmids',
+     cex.axis=1.5,
+     cex.lab = 1.5,
+     main='')
+points(obs_mapped~obs_days,
+       pch=16,
+       cex=1,
+       col=colors_obs)
+Rlabel <- bquote(italic(R)^2 == .(format(round(summary(mod_obs_mapped)$r.sq, digits = 3))))
+Plabel <- bquote(italic(P) == .(format(round(summary(mod_obs_mapped)$s.table[,4], digits = 6))))
+mylabel <- c(Rlabel, Plabel)
+legend('top', legend = mylabel, bty = 'n', cex = 1.5)
+legend('topleft',
+       legend=c('ID1','ID2','ID3','ID4','ID5','ID6','ID7','ID8','ID9','ID10','ID11','ID12'),
+       fill=c(1:8,'brown','purple','darkblue','orange'),cex=1.5)
+
+
+
+# grDevices::windows(10,10)
+# par(mfrow=c(1,1))
+# par(mar=c(4,6,2,1))
+# 
+# plot(mod_beta_mapped,
+#      residuals=T,
+#      shift=mean(BCdist_mapped),
+#      # pch=16,
+#      col='black',
+#      rug=F,
+#      lwd=2,
+#      shade=T,
+#      shade.col='grey90',
+#      xlab='Month',ylab='Bray-Curtis Index',
+#      ylim = c(0.2,1.1),
+#      cex=1,
+#      main='')
+# points(BCdist_mapped~beta_days,
+#        pch=16,
+#        cex=1,
+#        col=colors_beta)
+# # legend('topleft',
+# #        legend=c('ID1','ID2','ID3','ID4','ID5','ID6','ID7','ID8','ID9','ID10','ID11','ID12'),
+# #        fill=c(1:8,'brown','purple','darkblue','orange'),cex=.7)
+# Rlabel <- bquote(italic(R)^2 == .(format(round(summary(mod_beta_mapped)$r.sq, digits = 3))))
+# Plabel <- bquote(italic(P) < .(format(2e-16)))
+# mylabel <- c(Rlabel, Plabel)
+# legend('top', legend = mylabel, bty = 'n')
+
+
+
+cor.test(shannon_days, shannon_mapped, method = 'spearman')
+cor.test(chao_days, chao_mapped, method = 'spearman')
+cor.test(obs_days, obs_mapped, method = 'spearman')
+
