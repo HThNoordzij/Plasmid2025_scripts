@@ -1,0 +1,381 @@
+
+# Clean up the memory before we start. 
+rm(list=ls(all=TRUE)) 
+
+#Load package
+library("tidyverse")
+
+# set working directory
+setwd("~/PATH/")
+
+# functions
+get_taxid <- function(x) {
+  x <- gsub(")", "",tail(unlist(x),n=1),fixed = T)
+  return(as.integer(x))
+}
+
+get_species <- function(x) {
+  x <- unlist(x)
+  if(length(x) > 1) {
+    return(paste(x[1], x[2]))
+  } else {
+    return(NA)
+  }
+}
+get_genus <- function(x) {
+  x <- unlist(x)
+  return(x[1])
+}
+
+#############################  kraken2   #######################################
+## Load taxid translation
+file_taxid <- "PATH/kraken2/taxonomy_all_2025_05_05.tsv"
+df_taxid <- read_tsv(file_taxid)
+
+get_order <- function(x) {
+  tmp_order <- NA
+  x <- unlist(x)
+  
+  if(any("FCB group" %in% x)) {
+    tmp_order <- x[8]
+  } else {
+    tmp_order <- x[6]
+  }
+  return(tmp_order)
+}
+
+df_taxid_genus <- df_taxid %>%
+  filter(Rank %in% c("species", 
+                     "genus",
+                     "strain",
+                     "subspecies")) %>%
+  ## filter out Rank = species that are actually unclassified 
+  filter(!grepl(" bacterium", `Scientific name`))
+
+df_taxid_order <- df_taxid_genus %>%
+  filter(Rank == "genus",
+         grepl("Bacteria", Lineage)) %>%
+  ## Get Order column
+  mutate(Order = sapply(strsplit(Lineage, ", ", fixed = TRUE), get_order)) 
+
+
+### GTDB plasmid
+file_kraken_plasmid <- "kraken2/all_plasmids_out.txt"
+df_kraken_plasmid <- read_tsv(file_kraken_plasmid, col_names = FALSE)
+colnames(df_kraken_plasmid) <- c("classified", "seq_name", "taxonomy", 
+                                 "length", "kmer_mapping")
+df_kraken_plasmid <- df_kraken_plasmid %>%
+  mutate("Taxon Id" = sapply(strsplit(taxonomy,"taxid "),get_taxid))
+
+df_kraken_plasmid_tax <- left_join(df_kraken_plasmid, df_taxid_genus)
+
+df_kraken_plasmid_genus <- df_kraken_plasmid_tax %>%
+  mutate(gtdb_plasmid_species = sapply(strsplit(`Scientific name`, " "), 
+                                       get_species),
+         gtdb_plasmid_genus = sapply(strsplit(`Scientific name`, " "), 
+                                     get_genus)) %>%
+  select(seq_name,length, gtdb_plasmid_species, gtdb_plasmid_genus)
+
+### GTDB genomes
+file_kraken_genome <- "kraken2/all_plasmids_chr_out.txt"
+df_kraken_genome <- read_tsv(file_kraken_genome, col_names = FALSE)
+colnames(df_kraken_genome) <- c("classified", "seq_name", "taxonomy", 
+                                 "length", "kmer_mapping")
+df_kraken_genome <- df_kraken_genome %>%
+  mutate("Taxon Id" = sapply(strsplit(taxonomy,"taxid "),get_taxid))
+
+df_kraken_genome_tax <- left_join(df_kraken_genome, df_taxid_genus)
+
+df_kraken_genome_genus <- df_kraken_genome_tax %>%
+  mutate(`Scientific name` = gsub("uncultured ", "", `Scientific name`),
+         `Scientific name` = gsub("[", "", `Scientific name`, fixed = T),
+         `Scientific name` = gsub("]", "", `Scientific name`, fixed = T),
+    gtdb_genome_species = sapply(strsplit(`Scientific name`, " "), get_species),
+    gtdb_genome_genus = sapply(strsplit(`Scientific name`, " "), get_genus)) %>%
+  select(seq_name,length, gtdb_genome_species, gtdb_genome_genus)
+
+df_kraken_join <- left_join(df_kraken_plasmid_genus, df_kraken_genome_genus)  %>%
+  select(seq_name, 
+         length,
+         gtdb_plasmid_genus,gtdb_genome_genus,
+         gtdb_plasmid_species,gtdb_genome_species)
+
+#############################   mash    ########################################
+### PLSDB
+file_plsdb_summary <- "plasmids_PLSDB_taxa_clusters.csv"
+df_plsdb <- read_csv(file_plsdb_summary)
+df_plsdb <- df_plsdb %>%
+  unite(seq_name, c(child,  cluster),sep=".cluster",remove = F) %>%
+  mutate(plsdb_genome_genus = `PLSDB genus`,
+         plsdb_genome_species = `PLSDB species`)
+
+
+#############################  uniref   ########################################
+file_annotation <- "plasmids_annotation_clusters.csv"
+df_annotation <- read_csv(file_annotation)
+
+df_clusters <- df_annotation %>%
+  select(child, cluster) %>%
+  unique()
+
+df_uniref_species <- df_annotation %>%
+  filter(!is.na(DB_taxa)) %>%
+  mutate(seq_name = contig) %>%
+  select(seq_name, DB_taxa) %>%
+  unique() %>%
+  group_by(seq_name) %>%
+  mutate(uniref_genome_species = paste(DB_taxa, collapse = "; ")) %>%
+  select(-DB_taxa) %>%
+  unique()
+
+## summarize genus
+df_uniref_genus <- df_annotation %>%
+  filter(!is.na(DB_taxa)) %>%
+  mutate(genus = sapply(strsplit(DB_taxa," "), get_genus)) %>%
+  unite(ID, c(child,cluster,genus),sep="_",remove = F)
+count_genus <- as.data.frame(table(df_uniref_genus$ID))
+colnames(count_genus) <- c("ID", "count")
+df_uniref_genus_count <- left_join(df_uniref_genus, count_genus) %>%
+  select(child, cluster, genus, count) %>%
+  unique()
+
+df_uniref_genus_summary <- df_uniref_genus_count %>%
+  group_by(child, cluster) %>%
+  unite(seq_name, c(child,  cluster),sep=".cluster",remove = F) %>%
+  mutate("UniRef90 genus" = paste(genus, collapse = "; "),
+         "UniRef90 genus count" = paste(count, collapse = "; ")) %>%
+  ungroup() %>%
+  select(seq_name, `UniRef90 genus`, `UniRef90 genus count`) %>%
+  unique()
+
+######################### Gather taxonomy  ####################################
+
+df_taxonomy <- left_join(df_kraken_join, df_plsdb)
+df_taxonomy <- left_join(df_taxonomy, df_uniref_genus_summary)
+df_taxonomy <- df_taxonomy %>%
+  select(seq_name, 
+         length,
+         gtdb_plasmid_genus, gtdb_genome_genus,
+         plsdb_genome_genus, `PLSDB genus count`,
+         `UniRef90 genus`,`UniRef90 genus count`,
+         gtdb_plasmid_species, gtdb_genome_species,
+         plsdb_genome_species, `PLSDB species count`, `PLSDB NCBI`)
+
+### decide "sure" and "unsure" host + Broad Host Range plasmids
+get_host <- function(seq,
+                     gtdb_pls,gtdb_gen,
+                     plsdb_genus, plsdb_species,
+                     uniref_genus, uniref_genus_count) {
+  ## how sure we are of the host
+  category <- 0
+  
+  ### Putative broad host range plasmid based on > 1 genera
+  pBHR <- ifelse(!is.na(plsdb_genus) & str_count(plsdb_genus, ";") > 0, 1, 0)
+  
+  ### Get order of pBHR plasmid
+  order <- NA
+  if(pBHR == 1) {
+    genera <- unlist(strsplit(plsdb_genus, 
+                              "; ", fixed = TRUE))
+    for (i in 1:length(genera)) {
+      # print(genera[i])
+      tmp_order <- df_taxid_order %>%
+        filter(`Scientific name` == genera[i]) %>%
+        select(Order) %>% unique() %>% as.character()
+      if(is.na(order) & !is.na(tmp_order)) {
+        order <- tmp_order
+      } else if(!is.na(order) & order != tmp_order) {
+        order <- paste(c(order, tmp_order), 
+                       collapse = "; ")
+        order <- paste(c(unique(unlist(strsplit(order, "; ", fixed = TRUE)))), 
+                       collapse = "; ")
+      }
+    }
+  }
+  
+  ## When both plasmid databases agree (gtdb and plsdb_genus)
+  ## --> take plsdb genera
+  if(!is.na(gtdb_pls) & !is.na(plsdb_genus) &
+     grepl(gtdb_pls, plsdb_genus, ignore.case = T)) {
+    category <- 7
+    return(paste(seq, plsdb_genus,pBHR,category,order, sep = ","))
+  }
+  
+  ## When the gtdb plasmid db doesn't agree with plsdb_genus
+  ## This data comes from isolates, so should be OK
+  ## --> take plsdb genera
+  else if(!is.na(plsdb_genus)) {
+    category <- 6
+    return(paste(seq, plsdb_genus,pBHR,category,order, sep = ","))
+  }
+  
+  ## When both gtdb databases agree (and no hits from plsdb)
+  else if(!is.na(gtdb_pls) & !is.na(gtdb_gen) &
+     (gtdb_pls == gtdb_gen)) {
+    category <- 5
+    return(paste(seq, gtdb_pls,pBHR,category,order, sep = ","))
+  }
+  
+  ## When gtdb plasmid database has a hit that is contained with uniref
+  ## --> take gtdb plasmid genus
+  else if(!is.na(gtdb_pls) &
+          grepl(gtdb_pls, uniref_genus, ignore.case = T)) {
+    category <- 4
+    return(paste(seq, gtdb_pls,pBHR,category,order, sep = ","))
+  }
+  
+  ## When gtdb genome database has a hit that is also contained with uniref
+  ## no hits plsdb or gtdb plasmid db
+  else if(is.na(gtdb_pls) & is.na(plsdb_genus) &
+          !is.na(gtdb_gen) &
+          grepl(gtdb_gen, uniref_genus, ignore.case = T)) {
+    category <- 3
+    return(paste(seq, gtdb_gen,pBHR,category,order, sep = ","))
+  }
+  
+  ## When only gtdb genome database has a hit
+  else if(is.na(gtdb_pls) & !is.na(gtdb_gen)) {
+    category <- 2
+    return(paste(seq, gtdb_gen,pBHR,category,order, sep = ","))
+  }
+  
+  ## When only uniref database has hits, choose highest taxa count
+  else if(is.na(gtdb_pls) & is.na(gtdb_gen) &
+          is.na(plsdb_genus) & !is.na(uniref_genus)) {
+    category <- 1
+    highest_taxa_count <- which.max(
+      as.integer(unlist(strsplit(uniref_genus_count, ";"))))
+    highest_taxa <- unlist(strsplit(uniref_genus, "; "))[highest_taxa_count]
+    return(paste(seq, highest_taxa,pBHR,category,order, sep = ","))
+  }
+  
+  ## Unknown host
+  else {
+    return(paste(seq, NA,pBHR,category,order, sep = ","))
+    }
+}
+
+plasmid_hosts_list <- mapply(get_host,
+                           df_taxonomy$seq_name,
+                           df_taxonomy$gtdb_plasmid_genus,
+                           df_taxonomy$gtdb_genome_genus,
+                           df_taxonomy$plsdb_genome_genus,
+                           df_taxonomy$plsdb_genome_species,
+                           df_taxonomy$`UniRef90 genus`,
+                           df_taxonomy$`UniRef90 genus count`)
+
+df_plasmid_hosts <- data.frame(seq_name = sapply(plasmid_hosts_list, 
+                                                 function(x) 
+                                                   unlist(strsplit(x, ","))[1]),
+                               host_genus = sapply(plasmid_hosts_list, 
+                                                   function(x) 
+                                                     unlist(strsplit(x, ","))[2]),
+                               pBHR = sapply(plasmid_hosts_list, 
+                                             function(x) 
+                                               unlist(strsplit(x, ","))[3]),
+                               category = sapply(plasmid_hosts_list, 
+                                                    function(x) 
+                                                      unlist(strsplit(x, ","))[4]),
+                               order = sapply(plasmid_hosts_list, 
+                                              function(x) 
+                                                unlist(strsplit(x, ","))[5]))
+
+df_plasmid_hosts <- df_plasmid_hosts %>%
+  mutate(category = as.integer(category),
+         "category name" = case_when(
+           category == 0 ~ "Unknown putative host",
+           category == 1 ~ "UniRef90 only",
+           category == 2 ~ "GTDB genome only",
+           category == 3 ~ "GTDB genome in UniRef90\n no GTDB plasmid",
+           category == 4 ~ "GTDB plasmid in UniRef90",
+           category == 5 ~ "GTDB plasmid = GTDB genome",
+           category == 6 ~ "PLSDB",
+           category == 7 ~ "GTDB plasmid in PLSDB",
+           .default = NA
+         ),
+         "putative broad host range (pBHR) order" = ifelse(pBHR == 1, ifelse(grepl(";", order), 
+                                                 "pBHR_other",
+                                                 paste("pBHR", order, sep = "_")),
+                               NA))
+
+## Make one table with assigned taxonomy + per database
+df_taxonomy_summary <- left_join(df_taxonomy,df_plasmid_hosts)
+df_taxonomy_summary <- df_taxonomy_summary %>%
+  mutate(child = sapply(strsplit(seq_name, ".", fixed = TRUE), 
+                        function(x) unlist(x)[1]),
+         cluster = sapply(strsplit(seq_name, ".", fixed = TRUE), 
+                        function(x) as.integer(
+                          gsub("cluster","",
+                               unlist(x)[2]))),
+         "putative Broad Host Range" = pBHR,
+         "putative host" = ifelse(host_genus == "NA", NA, host_genus),
+         "putative host assignment origin" = `category name`,
+         "PLSDB genera" = plsdb_genome_genus,
+         "PLSDB genera count" = `PLSDB genus count`,
+         "GTDB plasmid genera" = gtdb_plasmid_genus,
+         "GTDB genome genera" = gtdb_genome_genus,
+         "UniRef90 genera" = `UniRef90 genus`,
+         "UniRef90 protein count per genera" = `UniRef90 genus count`,
+         "PLSDB species" = plsdb_genome_species,
+         "PLSDB species count" = `PLSDB species count`,
+         "GTDB plasmid species" = gtdb_plasmid_species,
+         "GTDB genome species" = gtdb_genome_species) %>%
+  select(child,
+         cluster,
+         length,
+         `putative host`,
+         `putative broad host range (pBHR) order`,
+         `putative host assignment origin`,
+         `PLSDB genera`,
+         `PLSDB genera count`,
+         `GTDB plasmid genera`,
+         `GTDB genome genera`,
+         `UniRef90 genera`,
+         `UniRef90 protein count per genera`,
+         `PLSDB species`,
+         `PLSDB species count`,
+         `PLSDB NCBI`,
+         `GTDB plasmid species`,
+         `GTDB genome species`)
+
+## save annotated
+outfile <- "plasmids_taxonomy_clusters.csv"
+write_csv(df_taxonomy_summary, file = outfile)
+
+
+#############################  Stats   #########################################
+### Count plasmids per genera
+df_plasmid_hosts_pBHR <- df_plasmid_hosts %>%
+  mutate(host_genus = case_when(pBHR == 1 ~ `putative broad host range (pBHR) order`,
+                                .default = host_genus))
+count_hosts <- as.data.frame(table(df_plasmid_hosts_pBHR$host_genus))
+colnames(count_hosts) <- c("Genus", "# pBHR/Genus")
+
+df_plasmid_hosts_all <- df_plasmid_hosts %>%
+  separate_longer_delim(host_genus, delim = "; ")
+count_hosts_split <- as.data.frame(table(df_plasmid_hosts_all$host_genus))
+colnames(count_hosts_split) <- c("Genus", "# Genus")
+
+df_category <- as.data.frame(table(df_plasmid_hosts$category))
+colnames(df_category) <- c("category", "Count")
+df_category <- df_category %>%
+  mutate("category name" = case_when(
+    category == 0 ~ "Unknown putative host",
+    category == 1 ~ "UniRef90 only",
+    category == 2 ~ "GTDB genome only",
+    category == 3 ~ "GTDB genome in UniRef90\n no GTDB plasmid",
+    category == 4 ~ "GTDB plasmid in UniRef90",
+    category == 5 ~ "GTDB plasmid = GTDB genome",
+    category == 6 ~ "PLSDB",
+    category == 7 ~ "GTDB plasmid in PLSDB",
+    .default = NA
+  )) %>%
+  select(category,`category name`,Count)
+df_category
+
+df_plasmid_hosts_count_summary <- left_join(count_hosts,
+                                            count_hosts_split)
+
+## save genus count
+outfile_count <- "plasmids_taxonomy_count.csv"
+write_csv(df_plasmid_hosts_count_summary, file = outfile_count)
