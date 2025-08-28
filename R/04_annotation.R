@@ -3,11 +3,17 @@ rm(list=ls(all=TRUE))
 
 #Load package
 library("tidyverse")
+library(data.table)
 
 # set working directory
 setwd("~/PATH/")
 
 ##functions
+fread_with_arguments <- function(file) {
+  return(fread(file, 
+               sep="#", 
+               fill = TRUE))
+}
 get_child <- function(x) {
   x <- head(unlist(x),n=1)
   return(toupper(x))
@@ -36,11 +42,6 @@ get_function_uniprot <- function(x) {
   x <- head(unlist(x),n=1)
   x <- unlist(strsplit(x, " "))[-1]
   x <- paste(x, collapse = " ")
-  return(x)
-}
-get_taxa_uniprot <- function(x) {
-  x <- tail(unlist(x),n=1)
-  x <- head(unlist(strsplit(x, " TaxID")), n=1)
   return(x)
 }
 get_taxid <- function(x) {
