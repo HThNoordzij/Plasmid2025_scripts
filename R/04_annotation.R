@@ -54,30 +54,17 @@ get_taxid <- function(x) {
 ###############################################################################
 
 ## Load prodigal (intermediate files from running RGI)
-# create empty dataframe
-df_prodigal <- data.frame(stringsAsFactors = FALSE)
-
-## Load mobileOG files into one dataframe
-prodigal_files <- list.files(path = "PATH/", 
+prodigal_files <- list.files(path = "rgi/rgi_orfs/", 
                              full.names = TRUE)
-for (i in 1:length(prodigal_files)) {
-  file_name <- tail(strsplit(prodigal_files[i], "/")[[1]], n=1)
-  file_name <- head(strsplit(file_name, "[.]")[[1]], n=1)
-  assign(file_name, read.table(prodigal_files[i], sep="#", 
-                               comment.char="", 
-                               fill = TRUE))
-  row <- get(file_name)
-  row <- row %>% filter(!is.na(V2)) 
-  colnames(row) <- c("ORF", "start", "end", "Orientation", "info")
-  
-  tmp_child <- tail(head(unlist(strsplit(file_name, "_")), n=3), n=1)
-  row <- row %>%
-    mutate(child = tmp_child,
-           ORF = gsub(">", "", ORF))
-  
-  df_prodigal <- rbind(df_prodigal, row)
-}
-df_prodigal <- df_prodigal %>%
+prodigal_files <- prodigal_files[grepl("ID", prodigal_files)]
+names(prodigal_files) <- str_remove(basename(prodigal_files), 
+                                    "\\_plasmids.fasta.temp.contig.fsa")
+df_prodigal <- map_dfr(prodigal_files, 
+                       fread_with_arguments, .id = 'child')
+colnames(df_prodigal) <- c("child","ORF", "start", "end", "Orientation", "info")
+
+df_prodigal_select <- df_prodigal %>%
+  filter(!is.na(start))  %>%
   mutate(ORF = gsub(" ", "", gsub(">", "", ORF)),
          child = sapply(strsplit(ORF, ".", fixed = T), get_child),
          contig = sapply(strsplit(ORF, "_"), get_contig),
@@ -87,8 +74,7 @@ df_prodigal <- df_prodigal %>%
            grepl("partial=00", info) ~ FALSE,
            .default = TRUE
          )
-  )
-df_prodigal_select <- df_prodigal %>%
+  ) %>%
   select(child, cluster, contig, ORF, start, end, Orientation, info, partial) %>%
   unique()
 
@@ -122,35 +108,22 @@ df_prodigal_total <-  df_prodigal_select %>%
 
 
 ## load rgi
-# create empty dataframe
-df_rgi <- data.frame(stringsAsFactors = FALSE)
-
-## Load rgi files into one dataframe
-rgi_files <- list.files(path = "PATH/", 
+rgi_files <- list.files(path = "rgi/rgi_output/", 
                         full.names = TRUE)
-for (i in 1:length(rgi_files)) {
-  file_name <- tail(strsplit(rgi_files[i], "/")[[1]], n=1)
-  file_name <- head(strsplit(file_name, "[.]")[[1]], n=1)
-  assign(file_name, read_tsv(rgi_files[i], col_names = TRUE))
-  row <- get(file_name)
-  child <- tail(head(unlist(strsplit(file_name, "_")), n=3),n=1)
-  row$child <- child
-  df_rgi <- rbind(df_rgi, row)
-}
-df_rgi <- df_rgi %>%
-  mutate(child = sapply(strsplit(Contig, ".", fixed = T), get_child),
-         cluster = sapply(strsplit(Contig, "_"), get_cluster))
-
-# filter
-df_rgi_filter <- df_rgi %>% 
-  filter(Best_Identities >= 80 &
-           `Percentage Length of Reference Sequence` >= 80) 
+rgi_files <- rgi_files[grepl("id", rgi_files)]
+names(rgi_files) <- toupper(str_remove(basename(rgi_files), 
+                                       "\\.txt"))
+df_rgi <- map_dfr(rgi_files, 
+                       fread, .id = 'child')
 
 ## select right columns rgi
-df_rgi_total <- df_rgi_filter%>%
+df_rgi_total <- df_rgi %>%
+  mutate(cluster = sapply(strsplit(Contig, "_"), get_cluster)) %>% 
+  ## filter
+  filter(Best_Identities >= 80 &
+           `Percentage Length of Reference Sequence` >= 80) %>%
   mutate(ORF = Contig,
          contig = sapply(strsplit(Contig, "_"), get_contig),
-         # cluster = as.integer(gsub("cluster", "",sapply(strsplit(Contig, "_"), get_cluster))),
          ID = contig,
          "Name" = Best_Hit_ARO,
          "DB" = "CARD",
@@ -169,7 +142,6 @@ df_rgi_total <- df_rgi_filter%>%
          DB_taxa,
          ID
   )
-
 
 ## DoriC
 doric_file <- "PATH/all_plasmids_DoriC.txt"
@@ -329,26 +301,17 @@ df_orit_total <- df_orit_filter %>%
 
 
 ## uniprot90
-# create empty dataframe
-df_uniprot <- data.frame(stringsAsFactors = FALSE)
-uniprot_files <- list.files(path = "PATH/diamond/uniref90/", 
+uniprot_files <- list.files(path = "diamond/uniref90/", 
                             full.names = TRUE)
-for (i in 1:length(uniprot_files)) {
-  file_name <- tail(strsplit(uniprot_files[i], "/")[[1]], n=1)
-  file_name <- head(strsplit(file_name, "[.]")[[1]], n=1)
-  assign(file_name, read_tsv(uniprot_files[i], col_names = FALSE))
-  row <- get(file_name)
-  tmp_child <- head(unlist(strsplit(file_name, "_")), n=1)
-  row <- row %>%
-    mutate(
-      child = toupper(tmp_child)
-    )
-  df_uniprot <- rbind(df_uniprot, row)
-}
-names(df_uniprot) <- c("query", "subject", "qlength", "slength", "qcovhsp",
+uniprot_files <- uniprot_files[grepl("id", uniprot_files)]
+names(uniprot_files) <- toupper(str_remove(basename(uniprot_files), 
+                                    "\\_uniref90_diamond_outfmt6.tsv"))
+df_uniprot <- map_dfr(uniprot_files, 
+                       fread, .id = 'child')
+names(df_uniprot) <- c("child","query", "subject", "qlength", "slength", "qcovhsp",
                        "identity", "alignment length", "mismatches", 
                        "gap opens", "qstart", "qend", "sstart", "send", 
-                       "Evalue","bit score", "STitel", "child")
+                       "Evalue","bit score", "STitel")
 
 df_uniprot_dedup <- df_uniprot %>%
   group_by(query, child) %>%
@@ -383,11 +346,9 @@ df_taxid_genus <- df_taxid %>%
   mutate(`Scientific name` = gsub("[", "", `Scientific name`, fixed = T),
          `Scientific name` = gsub("]", "", `Scientific name`, fixed = T))
 
-
 df_uniprot_tax <- df_uniprot_filter %>%
   mutate("Taxon Id" = sapply(strsplit(STitel, "TaxID="), get_taxid))
 df_uniprot_tax <- left_join(df_uniprot_tax, df_taxid_genus)
-
 
 df_uniprot_total <- df_uniprot_tax %>%
   mutate(UniRef_function = str_replace_all(sapply(strsplit(STitel, " n="), get_function_uniprot), ",", ";"),
@@ -414,8 +375,51 @@ df_uniprot_total <- df_uniprot_tax %>%
          DB_taxa,
          ID)
 
+## Macsyfinder
+macsyfinder_annotation_files <- df_uniprot_total %>% 
+  select(child, cluster) %>% 
+  unique() %>%
+  mutate(file = paste("macsyfinder/",
+                      child,
+                      "/best_solution/cluster",
+                      cluster,
+                      "_best_solution.tsv",
+                      sep = "")) %>%
+  select(file,child) 
+names(macsyfinder_annotation_files$file) <- toupper(macsyfinder_annotation_files$child)
+
+df_macsyfinder <- map_dfr(macsyfinder_annotation_files$file, 
+                          fread, .id = 'child')
+
+df_macsyfinder_total <- df_macsyfinder %>%
+  filter(!is.na(replicon)) %>%
+  mutate(cluster = sapply(strsplit(hit_id, "_"), get_cluster),
+         contig = sapply(strsplit(hit_id, "_"), get_contig),
+         ORF = hit_id,
+         Name = gene_name,
+         DB = "MacSyFinder",
+         ARO = NA,
+         "Drug Class" = NA,
+         "Resistance Mechanism" = NA,
+         UniRef_function = NA,
+         DB_taxa = NA,
+         ID = contig) %>%
+  select(child,
+         cluster, 
+         contig, 
+         ORF, 
+         Name,
+         DB,
+         ARO,
+         `Drug Class`,
+         `Resistance Mechanism`,
+         UniRef_function,
+         DB_taxa,
+         ID)
+
 ## gather
 df_total <- rbind(df_rgi_total, df_uniprot_total)
+df_total <- rbind(df_total, df_macsyfinder_total)
 ## add start, end, orientation etc from prodigal
 df_total <- left_join(df_total, df_prodigal_select)
 ## fill in "empty" ORFs
@@ -435,5 +439,4 @@ df_total <- df_total %>%
 ## save annotated
 outfile <- "plasmids_annotation_clusters.csv"
 write.csv(df_total, file = outfile, row.names = FALSE, quote = FALSE)
-
 
