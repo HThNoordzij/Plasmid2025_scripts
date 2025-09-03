@@ -146,11 +146,13 @@ df_rgi_total <- df_rgi %>%
 
 ## DoriC
 doric_file <- "PATH/all_plasmids_DoriC.txt"
-df_doric <- read_tsv(doric_file, col_names = FALSE)
-names(df_doric) <- c("query", "subject", "qlength", "slength", "qcovs", "qcovhsp",
-                     "identity", "alignment length", "mismatches", "gap opens", 
-                     "qstart", "qend", "sstart", "send", "Evalue", 
-                     "bit score", "STitel")
+df_doric <- fread(doric_file, 
+                 sep = "\t",
+                 fill = TRUE,
+                 col.names = c("query", "subject", "qlength", "slength", "qcovs", "qcovhsp",
+                               "identity", "alignment length", "mismatches", "gap opens", 
+                               "qstart", "qend", "sstart", "send", "Evalue", 
+                               "bit score", "STitel"))
 
 df_doric <- df_doric %>%
   mutate(child = sapply(strsplit(query, ".", fixed = T), get_child),
@@ -207,7 +209,9 @@ df_doric_dedup <- df_doric_filter_total %>%
 
 ## Load metadata DoriC
 doric_meta_file <- "PATH/doric10/Plasmids.csv"
-df_doric_metadata <- read_delim(doric_meta_file, delim = ";")
+df_doric_metadata <- fread(doric_meta_file,
+                           sep = ";",
+                           fill = TRUE)
 df_doric_metadata <- df_doric_metadata %>%
   mutate(subject = paste(doricAC,Refseq, sep = "_"))
 
@@ -250,11 +254,13 @@ df_doric_total <- df_doric_taxa %>%
 
 ## OriT
 orit_file <- "PATH/all_plasmids_oriT.txt"
-df_orit <- read_tsv(orit_file, col_names = FALSE)
-names(df_orit) <- c("query", "subject", "qlength", "slength", "qcovs", "qcovhsp",
-                     "identity", "alignment length", "mismatches", "gap opens", 
-                     "qstart", "qend", "sstart", "send", "Evalue", 
-                     "bit score", "STitel")
+df_orit <- fread(orit_file, 
+                 sep = "\t",
+                 fill = TRUE,
+                 col.names = c("query", "subject", "qlength", "slength", "qcovs", "qcovhsp",
+                               "identity", "alignment length", "mismatches", "gap opens", 
+                               "qstart", "qend", "sstart", "send", "Evalue", 
+                               "bit score", "STitel"))
 
 df_orit <- df_orit %>%
   mutate(child = sapply(strsplit(query, ".", fixed = T), get_child),
@@ -439,5 +445,9 @@ df_total <- df_total %>%
 
 ## save annotated
 outfile <- "plasmids_annotation_clusters.csv"
-write.csv(df_total, file = outfile, row.names = FALSE, quote = FALSE)
+fwrite(df_total, 
+       file = outfile,
+       sep = ",", 
+       row.names=FALSE, 
+       col.names=FALSE)
 
