@@ -74,7 +74,7 @@ fwrite(df_mobmess_genomad,
        file = file_summary,
        sep = ",", 
        row.names=FALSE, 
-       col.names=FALSE)
+       col.names=TRUE)
 
 ########################  fasta of plasmids   ##################################
 ### Load contigs
