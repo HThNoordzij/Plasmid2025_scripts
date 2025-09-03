@@ -55,8 +55,11 @@ df_mobless_circ <- df_genomad %>%
                           .default = 0)) %>%
   select(seq_name, circ)
 
-write.table(df_mobless_circ, file = file_mobmess_circ,
-            sep = "\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
+fwrite(df_mobless_circ, 
+       file = file_mobmess_circ,
+       sep = "\t", 
+       row.names=FALSE, 
+       col.names=FALSE)
 
 ### split fasta files per child
 for (i in 1:12) {
@@ -82,8 +85,11 @@ for (i in 1:12) {
     filter(grepl(paste0(tmp_child, "_"), seq_name)) %>%
     mutate(seq_name = gsub("_", ".", seq_name))
   
-  write.table(df_mobless_circ_child, file = paste0("MobMess/circular_scaffolds_geNomad_",
-                                                   tmp_child,
-                                                   ".txt"),
-              sep = "\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
+  fwrite(df_mobless_circ_child, 
+         file = paste0("MobMess/circular_scaffolds_geNomad_",
+                       tmp_child,
+                       ".txt"),
+         sep = "\t", 
+         row.names=FALSE, 
+         col.names=FALSE)
 }
