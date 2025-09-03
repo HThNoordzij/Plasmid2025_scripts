@@ -5,6 +5,7 @@ rm(list=ls(all=TRUE))
 
 #Load package
 library("tidyverse")
+library(data.table)
 library("Biostrings")
 
 ## functions
@@ -19,8 +20,9 @@ setwd("~/PATH/")
 ###############################    ORFs    #####################################
 # Load clusters
 file_clusters <- "summary_mobmess_genomad.csv"
-df_clusters <- read_csv(file_clusters)
-
+df_clusters <- fread(file_clusters, 
+                     sep = ",",
+                     fill = TRUE)
 children <- df_clusters$child %>% unique()
 
 for(i in 1:length(children)) {
