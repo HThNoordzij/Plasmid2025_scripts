@@ -4,6 +4,7 @@ rm(list=ls(all=TRUE))
 
 #Load package
 library("tidyverse")
+library(data.table)
 library("Biostrings")
 library(RColorBrewer)
 # display.brewer.all()
@@ -22,42 +23,29 @@ get_ID <- function(x) {
 # Load clusters
 files_cluster <- list.files(path = "MobMess/output/clusters/", 
                             full.names = TRUE)
+names(files_cluster) <- as.integer(gsub("ID", "", str_remove(basename(files_cluster), 
+                                    "\\-mobmess_clusters.txt")))
+df_cluster <- map_dfr(files_cluster, 
+                      fread, .id = 'child')
 
-df_cluster <- data.frame()
-df_count <- data.frame()
-
-for (i in 1:length(files_cluster)) {
-  tmp_child <- as.integer(gsub("ID", "",tail(unlist(
-                                strsplit(head(unlist(
-                                  strsplit(files_cluster[i], "-")),
-                                    n=1), "/")),n=1)))
-  tmp_file <- files_cluster[i]
-  
-  tmp_cluster <- read_tsv(tmp_file, 
-                          show_col_types = FALSE)
-  tmp_cluster <- tmp_cluster %>%
-    mutate(child = tmp_child)
-  
-  df_cluster <- rbind(df_cluster,
-                      tmp_cluster)
-  
-  ##count cluster (plasmids) and system per infant
-  tmp_plasmids <- max(tmp_cluster$cluster)
-  tmp_contigs <- nrow(tmp_cluster)
-  tmp_row <- c(tmp_child, tmp_plasmids,tmp_contigs)
-  df_count <- rbind(df_count,
-                    tmp_row)
-}
-
-# save count for later plotting
-names(df_count) <- c("child", "#plasmids", "#contigs")
-df_count <- df_count %>%
-  select(child,
-         `#contigs`,
-         `#plasmids`) %>%
+df_count <- df_cluster %>% 
+  group_by(child) %>% 
+  mutate(child = as.integer(child),
+         contigs = n()) %>% 
+  select(child,cluster, contigs) %>% 
+  unique() %>% 
+  mutate(plasmids = n()) %>% 
+  select(child, contigs,plasmids) %>% 
+  unique() %>% 
   arrange(child)
+names(df_count) <- c("child", "#plasmids", "#contigs")
+
 file_count <- "count_contigs_plasmids.csv"
-write_csv(df_count, file = file_count)
+fwrite(df_count, 
+       file = file_count,
+       sep = ",", 
+       row.names=FALSE, 
+       col.names=FALSE)
 
 ############################  add geNomad  #####################################
 ## Make summary of mobmess and genomad
@@ -72,7 +60,9 @@ df_summary <- df_cluster %>%
 
 #### add genomad to the summary
 file_genomad <- "geNomad/plasmid_summary.tsv"
-df_genomad <- read_tsv(file_genomad)
+df_genomad <- fread(file_genomad, 
+                    sep = "\t",
+                    fill = TRUE)
 df_genomad <- df_genomad %>%
   mutate(child = sapply(strsplit(seq_name, "_"), get_ID))
 
@@ -80,7 +70,11 @@ df_mobmess_genomad <- left_join(df_summary, df_genomad)
 
 ## Save summary mobmess and genomad
 file_summary <- "summary_mobmess_genomad.csv"
-write_csv(df_mobmess_genomad, file = file_summary)
+fwrite(df_mobmess_genomad, 
+       file = file_summary,
+       sep = ",", 
+       row.names=FALSE, 
+       col.names=FALSE)
 
 ########################  fasta of plasmids   ##################################
 ### Load contigs
@@ -121,9 +115,9 @@ for (i in 1:12) {
 
 ## Make circular file for second round of MobMess
 file_circular <- "MobMess/circular_scaffolds_geNomad.txt"
-df_circular <- read_tsv(file_circular,
-                        col_names = F)
-colnames(df_circular) <- c("seq_name", "circular")
+df_circular <- fread(file_circular,
+                 sep = "\t",
+                 col.names = c("seq_name", "circular"))
 
 df_circular_new <- left_join(df_circular, df_mobmess_genomad) %>%
   filter(!is.na(child)) %>%
@@ -132,22 +126,22 @@ df_circular_new <- left_join(df_circular, df_mobmess_genomad) %>%
   select(ID, circular)
 
 file_mobmess_circ <- "MobMess/circular_all_plasmids.txt"
-write.table(df_circular_new, file = file_mobmess_circ,
-            sep = "\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
+fwrite(df_circular_new, 
+       file = file_mobmess_circ,
+       sep = "\t", 
+       row.names=FALSE, 
+       col.names=FALSE)
 
 ############ Count plots ###################
-
-rownames(df_count) <- df_count$child
-df_count <- df_count %>% select(-child)
-df_count <- as.matrix(df_count, ncol= 2)
-
-df_count <- df_count[ order(as.integer(rownames(df_count))), ]
+df_count_plot <- as.matrix(df_count)
+rownames(df_count_plot) <-  as.character(seq(1,12,1))
+df_count_plot <- df_count_plot[,2:3]
 
 grDevices::windows(15,15)
 par(mfrow=c(1,1))
 par(mar=c(4,6,2,1))
 
-barplot(t(df_count),
+barplot(t(df_count_plot),
         col = c(palette[2], palette[1]),
         # legend = c("contigs","bins"),
         beside = TRUE,
