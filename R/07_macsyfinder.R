@@ -4,11 +4,17 @@ rm(list=ls(all=TRUE))
 # Load libraries
 library("tidyverse")
 library("Biostrings")
+library(data.table)
 
 # Set working directory
 setwd("~/PATH/")
 
 ## functions
+fread_with_arguments <- function(file) {
+  return(fread(file, 
+               skip= 3, 
+               fill = TRUE))
+}
 get_cluster <- function(x) {
   x <- as.integer(unlist(strsplit(unlist(x)[1], "cluster"))[2])
 }
@@ -21,10 +27,15 @@ adjust_type <- function(x) {
 ###############################   infants  #####################################
 # Load annotation summary file
 annotation_file <- "plasmids_annotation_clusters.csv"
-df_annotation <- read_csv(annotation_file)
+df_annotation <- fread(annotation_file,
+                       sep = ",",
+                       fill = TRUE)
 
 ## clusters with oriT
-df_annotation_ori <- df_annotation %>% filter(DB == "OriT") %>% select(cluster) %>% unique()
+df_annotation_ori <- df_annotation %>% 
+      filter(DB == "OriT") %>% 
+      select(cluster) %>% 
+      unique()
 
 # empty dataframe
 df_annotation_conj_child <- data.frame()
@@ -35,33 +46,34 @@ for (i in 1:length(children)) {
   
   ## Load macsyfinder CONJ summary files in one dataframe
   df_macsyfinder_CONJ <- data.frame()
-  macsyfinder_CONJ_files <- list.files(
-    path = paste0("macsyfinder/",
-                  tmp_child,
-                  "/best_solution_summary/"), 
-    full.names = TRUE)
-  for (i in 1:length(macsyfinder_CONJ_files)) {
-    file_name <- tail(strsplit(macsyfinder_CONJ_files[i], "/")[[1]], n=1)
-    file_name <- head(strsplit(file_name, "[.]")[[1]], n=1)
-    assign(file_name, read.table(macsyfinder_CONJ_files[i], 
-                                 comment.char = "#",
-                                 header = T))
-    
-    tmp_df <- get(file_name)
-    tmp_df <- tmp_df %>%
-      mutate(child = tmp_child)
-    
-    df_macsyfinder_CONJ <- rbind(df_macsyfinder_CONJ, tmp_df)
-  }
-  ## add cluster column
+  macsyfinder_CONJ_files <- list.files(path = paste0("macsyfinder/",
+                                                     tmp_child,
+                                                     "/best_solution_summary/"), 
+                                       full.names = TRUE)
+  names(macsyfinder_CONJ_files) <- str_remove(basename(macsyfinder_CONJ_files), 
+                                  "\\cluster0_best_solution_summary.tsv")
+  tmp_row <- map_dfr(macsyfinder_CONJ_files, 
+                     fread_with_arguments, .id = 'ID')
+  df_macsyfinder_CONJ <- rbind(df_macsyfinder_CONJ, tmp_row)
+  
+  ## add child and cluster
   df_macsyfinder_CONJ <- df_macsyfinder_CONJ %>%
-    mutate(cluster = sapply(strsplit(replicon, "_"), get_cluster)) %>%
+    mutate(child = tmp_child,
+           cluster = sapply(strsplit(replicon, "_"), get_cluster)) %>%
     select(-replicon)
+  colnames(df_macsyfinder_CONJ) <- sapply(colnames(df_macsyfinder_CONJ), 
+                                          function(x) {
+                                            return(tail(unlist(strsplit(x,
+                                                                        "/", 
+                                                                        fixed = T
+                                                                        )
+                                                               ),
+                                                        n=1))})
   
   ## clusters per type
   # pivot table
   df_plasmid_type <- df_macsyfinder_CONJ %>% 
-    select(-child) %>%
+    select(-child, -ID) %>%
     pivot_longer(!cluster, names_to = "type", values_to = "count") %>%
     mutate(type = sapply(strsplit(type, "[.]"), adjust_type)) 
   ## filter out zero's from df_plasmid_type
@@ -85,7 +97,9 @@ df_annotation_conj <- df_annotation_conj %>%
 
 ## Load taxonomy data and add plasmid mobility there
 file_taxa <- "plasmids_taxonomy_clusters.csv"
-df_taxonomy <- read_csv(file_taxa)
+df_taxonomy <- fread(file_taxa,
+                     sep = ",",
+                     fill = T)
 
 df_taxonomy_mobility <- left_join(df_taxonomy, df_annotation_conj) 
 df_taxonomy_mobility <- df_taxonomy_mobility %>%
@@ -128,7 +142,9 @@ df_taxonomy_mobility <- df_taxonomy_mobility %>%
 
 ######## Add MobMess plasmid systems
 file_mobmess_system <- "MobMess/output/all_plasmids/all-mobmess_clusters.txt"
-df_mobmess <- read_tsv(file_mobmess_system) %>%
+df_mobmess <- fread(file_mobmess_system,
+                    sep = "\t",
+                    fill = T) %>%
   mutate(cluster_new = cluster) %>%
   select(-cluster)
 
@@ -168,7 +184,11 @@ df_rename <- df_taxonomy_mobility_mobmess %>%
          contig_old, contig_new)
 ## keep renaming dataframe
 file_rename <- "rename_plasmids.csv"
-write_csv(df_rename, file = file_rename)
+fwrite(df_rename,
+       file = file_rename,
+       sep = ",",
+       row.names = F,
+       col.names = T)
 
 df_taxonomy_mobility_summary <- df_taxonomy_mobility_mobmess %>%
   mutate("cluster type" = cluster_type,
@@ -207,8 +227,11 @@ df_taxonomy_mobility_summary <- df_taxonomy_mobility_mobmess %>%
 
 ## Save dataframe with conjugation info
 outfile <- "plasmids_tax_mobility_clusters.csv"
-write_csv(df_taxonomy_mobility_summary, file = outfile)
-
+fwrite(df_taxonomy_mobility_summary,
+       file = outfile,
+       sep = ",",
+       row.names = F,
+       col.names = T)
 
 #####################  rename plasmid in fasta   ###############################
 ### Load contigs
