@@ -3,6 +3,7 @@ rm(list=ls(all=TRUE))
 
 #Load package
 library("tidyverse")
+library(data.table)
 library(RColorBrewer)
 # display.brewer.all()
 palette<-brewer.pal(n=12,name='Paired')
@@ -11,86 +12,60 @@ palette<-brewer.pal(n=12,name='Paired')
 setwd("~/PATH/")
 
 ## functions
+fread_with_arguments <- function(file) {
+  return(fread(file, 
+               sep = " ",
+               skip = 1,
+               col.names = c("reads", 
+                             "day",
+                             "sample"),
+               fill = TRUE))
+}
 get_child <- function(x) {
-  x <- unlist(x)[2]
+  x <- head(unlist(x),n=1)
   x <- as.integer(gsub("id", "", x, ignore.case = T))
   return(x)
 }
-get_cluster <- function(x) {
-  x <- unlist(x)[1]
-  x <- as.integer(gsub("cluster", "", x, ignore.case = T))
+get_day <- function(x) {
+  x <- tail(unlist(x),n=1)
+  x <- as.integer(gsub("d", "", x, ignore.case = T))
   return(x)
 }
 
 ## Load abundance files
 abundance_file <- "abundance_summary_clusters.csv"
-df_abundance <- read_csv(abundance_file)
-
+df_abundance <- fread(abundance_file,
+                      sep = ",")
 ## load read counts
-read_files <- list.files(
-  path = "PATH/",
-  full.names = T
-)
+file_name_reads <- list.files(path = "PATH/read_depth/", 
+                              full.names = TRUE)
+names(file_name_reads) <- tolower(str_remove(basename(file_name_reads),
+                                             "\\_depth.txt"))
+df_reads <- map_dfr(file_name_reads, 
+                    fread_with_arguments, .id = 'child')
 
-# create empty dataframe
-df_reads <- data.frame(stringsAsFactors = FALSE)
-
-for (i in 1:length(read_files)) {
-  file_name <- tail(strsplit(read_files[i], "/")[[1]], n=1)
-  file_name <- head(strsplit(file_name, "[.]")[[1]], n=1)
-  
-  assign(file_name, read.table(read_files[i],
-                               header = TRUE))
-  
-  row <- get(file_name)
-  childno <-as.integer(gsub("ID", "", 
-                          head(unlist(strsplit(file_name, "_")), n=1), 
-                          ignore.case = T))  
-  row$child <- childno
-
-  row <- row %>%
-    mutate(day = as.integer(gsub("d", "", day))) %>%
-    select(reads, day, child)
-  
-  df_reads <- rbind(df_reads, row)
-}
+df_reads <- df_reads %>%
+  mutate(child = as.integer(gsub("id", "", child)),
+         day = as.integer(gsub("d", "", day))) %>%
+  select(child,day, reads)
 
 df_reads_millions <- df_reads %>%
   mutate(million = reads / 1000000)
 
 ## Load flagstat files
-flagstat_files <- list.files(
-  path = "PATH/flagstat/", 
-  full.names = TRUE)
+flagstat_files <- list.files(path = "PATH/flagstat/", 
+                             full.names = TRUE)
 
-# create empty dataframe
-df_flagstat <- data.frame(stringsAsFactors = FALSE)
+names(flagstat_files) <- str_remove(basename(flagstat_files),
+                                             "\\_flagstat.txt")
+df_flagstat <- map_dfr(flagstat_files, 
+                    fread, .id = 'ID')
 
-## since I only keep mapped reads in bam file
-## need to caluclate % mapped with read counts
-
-for (i in 1:length(flagstat_files)) {
-  file_name <- tail(strsplit(flagstat_files[i], "/")[[1]], n=1)
-  file_name <- head(strsplit(file_name, "[.]")[[1]], n=1)
-  assign(file_name, read.table(flagstat_files[i], 
-                               header = FALSE,
-                               sep = " "))
-  tmp_df <- get(file_name)
-  row <- list()
-  row$mapped <- tmp_df[1,1]
-  
-  child <- head(unlist(strsplit(file_name, "_")), n=1)
-  row$child <- child
-  
-  childno <- as.integer(gsub("id", "", child, ignore.case = T))
-  row$child <- childno
-  
-  day <- tail(head(unlist(strsplit(file_name, "_")), n=2), n=1)
-  day <- gsub("d", "", day)
-  row$day <- as.integer(day)
-  
-  df_flagstat <- rbind(df_flagstat, row)
-}
+df_flagstat <- df_flagstat %>%
+  mutate(mapped = V1,
+         child = sapply(strsplit(ID, "_"), get_child),
+         day = sapply(strsplit(ID, "_"), get_day)) %>%
+  select(child, day, mapped)
 
 df_flagstat_reads <- left_join(df_flagstat, df_reads)
 
