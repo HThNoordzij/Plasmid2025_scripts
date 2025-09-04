@@ -4,6 +4,7 @@ rm(list=ls(all=TRUE))
 
 #Load package
 library("tidyverse")
+library(data.table)
 
 # set working directory
 setwd("~/PATH/")
@@ -13,7 +14,6 @@ get_taxid <- function(x) {
   x <- gsub(")", "",tail(unlist(x),n=1),fixed = T)
   return(as.integer(x))
 }
-
 get_species <- function(x) {
   x <- unlist(x)
   if(length(x) > 1) {
@@ -26,12 +26,6 @@ get_genus <- function(x) {
   x <- unlist(x)
   return(x[1])
 }
-
-#############################  kraken2   #######################################
-## Load taxid translation
-file_taxid <- "PATH/kraken2/taxonomy_all_2025_05_05.tsv"
-df_taxid <- read_tsv(file_taxid)
-
 get_order <- function(x) {
   tmp_order <- NA
   x <- unlist(x)
@@ -43,6 +37,12 @@ get_order <- function(x) {
   }
   return(tmp_order)
 }
+#############################  kraken2   #######################################
+## Load taxid translation
+file_taxid <- "PATH/kraken2/taxonomy_all_2025_05_05.tsv"
+df_taxid <- fread(file_taxid,
+                 sep = "\t",
+                 fill = TRUE)
 
 df_taxid_genus <- df_taxid %>%
   filter(Rank %in% c("species", 
@@ -61,9 +61,12 @@ df_taxid_order <- df_taxid_genus %>%
 
 ### GTDB plasmid
 file_kraken_plasmid <- "kraken2/all_plasmids_out.txt"
-df_kraken_plasmid <- read_tsv(file_kraken_plasmid, col_names = FALSE)
-colnames(df_kraken_plasmid) <- c("classified", "seq_name", "taxonomy", 
-                                 "length", "kmer_mapping")
+df_kraken_plasmid <- fread(file_kraken_plasmid,
+                           sep = "\t",
+                           fill = TRUE,
+                           col.names = c("classified", "seq_name", "taxonomy", 
+                                         "length", "kmer_mapping"))
+
 df_kraken_plasmid <- df_kraken_plasmid %>%
   mutate("Taxon Id" = sapply(strsplit(taxonomy,"taxid "),get_taxid))
 
@@ -78,9 +81,12 @@ df_kraken_plasmid_genus <- df_kraken_plasmid_tax %>%
 
 ### GTDB genomes
 file_kraken_genome <- "kraken2/all_plasmids_chr_out.txt"
-df_kraken_genome <- read_tsv(file_kraken_genome, col_names = FALSE)
-colnames(df_kraken_genome) <- c("classified", "seq_name", "taxonomy", 
-                                 "length", "kmer_mapping")
+df_kraken_genome <- fread(file_kraken_genome,
+                          sep = "\t",
+                          fill = TRUE,
+                          col.names = c("classified", "seq_name", "taxonomy", 
+                                        "length", "kmer_mapping"))
+
 df_kraken_genome <- df_kraken_genome %>%
   mutate("Taxon Id" = sapply(strsplit(taxonomy,"taxid "),get_taxid))
 
@@ -103,7 +109,9 @@ df_kraken_join <- left_join(df_kraken_plasmid_genus, df_kraken_genome_genus)  %>
 #############################   mash    ########################################
 ### PLSDB
 file_plsdb_summary <- "plasmids_PLSDB_taxa_clusters.csv"
-df_plsdb <- read_csv(file_plsdb_summary)
+df_plsdb <- fread(file_plsdb_summary,
+                  sep = ",",
+                  fill = TRUE)
 df_plsdb <- df_plsdb %>%
   unite(seq_name, c(child,  cluster),sep=".cluster",remove = F) %>%
   mutate(plsdb_genome_genus = `PLSDB genus`,
@@ -112,7 +120,11 @@ df_plsdb <- df_plsdb %>%
 
 #############################  uniref   ########################################
 file_annotation <- "plasmids_annotation_clusters.csv"
-df_annotation <- read_csv(file_annotation)
+df_annotation <- fread(file_annotation,
+                       sep = ",",
+                       fill = TRUE)
+df_annotation <- df_annotation %>%
+  mutate(DB_taxa = na_if(DB_taxa, ""))
 
 df_clusters <- df_annotation %>%
   select(child, cluster) %>%
@@ -340,7 +352,11 @@ df_taxonomy_summary <- df_taxonomy_summary %>%
 
 ## save annotated
 outfile <- "plasmids_taxonomy_clusters.csv"
-write_csv(df_taxonomy_summary, file = outfile)
+fwrite(df_taxonomy_summary, 
+       file = outfile,
+       sep = ",", 
+       row.names=FALSE, 
+       col.names=TRUE)
 
 
 #############################  Stats   #########################################
@@ -378,4 +394,8 @@ df_plasmid_hosts_count_summary <- left_join(count_hosts,
 
 ## save genus count
 outfile_count <- "plasmids_taxonomy_count.csv"
-write_csv(df_plasmid_hosts_count_summary, file = outfile_count)
+fwrite(df_plasmid_hosts_count_summary, 
+       file = outfile_count,
+       sep = ",", 
+       row.names=FALSE, 
+       col.names=TRUE)
