@@ -4,11 +4,30 @@ rm(list=ls(all=TRUE))
 
 # Load libraries
 library("tidyverse")
+library(data.table)
 
 # Set working directory
 setwd("~/PATH/")
 
 # functions
+fread_with_arguments <- function(file) {
+  return(fread(file, 
+               sep = " ",
+               skip = 1,
+               col.names = c("reads", 
+                             "day",
+                             "sample"),
+               fill = TRUE))
+}
+get_child <- function(x) {
+  x <- head(unlist(x), n=1)
+  return(x)
+}
+get_day <- function(x) {
+  x <- tail(unlist(x), n=1)
+  x <- as.integer(gsub("d", "", x))
+  return(x)
+}
 get_cluster <- function(x) {
   x <- tail(unlist(x), n=1)
   x <- as.integer(gsub("cluster", "", x))
@@ -16,52 +35,37 @@ get_cluster <- function(x) {
 }
 
 #################################   infants   ##################################
-
 ## Load reads file
-# empty dataframe
-df_reads <- data.frame()
 file_name_reads <- list.files(path = "PATH/", full.names = TRUE)
-for (i in 1:length(file_name_reads)) {
-  file_name <- tail(strsplit(file_name_reads[i], "/")[[1]], n=1)
-  file_name <- head(strsplit(file_name, "[.]")[[1]], n=1)
-  assign(file_name, read.table(file_name_reads[i], sep = "",header = TRUE, 
-                               col.names = c("reads", "day", "sample"),
-                               fill = TRUE))
-  
-  tmp_child <- tolower(head(unlist(strsplit(file_name, "_")), n=1))
-  tmp_df <- get(file_name)
-  tmp_df <- tmp_df %>%
-    mutate(day = as.integer(gsub("d", "", day)),
-           child = tmp_child) %>%
-    select(child,day, reads)
-  df_reads <- rbind(df_reads, tmp_df)
-}
+names(file_name_reads) <- tolower(str_remove(basename(file_name_reads),
+                                             "\\_depth.txt"))
+df_reads <- map_dfr(file_name_reads, 
+                    fread_with_arguments, .id = 'child')
+
+df_reads <- df_reads %>%
+  mutate(day = as.integer(gsub("d", "", day))) %>%
+  select(child,day, reads)
 
 ## Load coverage files
-# empty dataframe
-df_coverage <- data.frame()
 coverage_files <- list.files(path = "bwa/coverage/", full.names = TRUE)
-for (i in 1:length(coverage_files)) {
-  file_name <- tail(strsplit(coverage_files[i], "/")[[1]], n=1)
-  file_name <- head(strsplit(file_name, "[.]")[[1]], n=1)
-  assign(file_name, read.table(coverage_files[i], 
-                               col.names = c("rname","startpos","endpos",
-                                             "numreads","covbases","coverage",
-                                             "meandepth","meanbaseq","meanmapq")))
-  tmp_child <- head(unlist(strsplit(file_name, "_")), n=1)
-  tmp_day <-as.integer(gsub("d", "", tail(head(unlist(strsplit(file_name, "_")),n=2),n=1)))  
-  tmp_df <- get(file_name)
-  tmp_df <- tmp_df %>%
-    mutate(child = tmp_child,
-           day = tmp_day)
-  df_coverage <- rbind(df_coverage, tmp_df)
-}
+names(coverage_files) <- str_remove(basename(coverage_files),
+                                     "\\_plasmids_coverage.txt")
+df_coverage <- map_dfr(coverage_files, 
+                    fread, .id = 'ID')
+df_coverage <- df_coverage %>%
+  mutate(child = sapply(strsplit(ID, "_", fixed = T), get_child),
+         day = sapply(strsplit(ID, "_", fixed = T), get_day),
+         rname = `#rname`,
+         cluster = sapply(strsplit(rname, ".", fixed = T), get_cluster)) %>%
+  select(-`#rname`)
 
 ## add child, cluster, day
 ## Rename cluster, see 07_macsyfinder.R
 ##  so different infants with the same plasmid have the same cluster number
 file_rename <- "rename_plasmids.csv"
-df_rename <- read_csv(file_rename)
+df_rename <- fread(file_rename,
+                   sep = ",",
+                   fill = T)
 
 df_coverage <- df_coverage %>%
   mutate(contig = sapply(rname, function(x) {
@@ -83,5 +87,8 @@ df_coverage_filter <- df_coverage_reads %>%
 
 ## Safe clusters abundance summary
 outfile <- "abundance_summary_clusters.csv"
-write.csv(df_coverage_filter,
-          file = outfile, row.names = FALSE, quote = FALSE)
+fwrite(df_coverage_filter,
+      file = outfile,
+      sep = ",",
+      row.names = F,
+      col.names = T)
